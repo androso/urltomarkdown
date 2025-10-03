@@ -5,7 +5,8 @@ const validURL = require('@7c/validurl');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const JSDOM = require('jsdom').JSDOM;
-const port = process.env.PORT;
+const path = require('path');
+const port = process.env.PORT || 3000;
 const app = express();
 
 const rateLimiter = rateLimit({
@@ -24,6 +25,10 @@ app.use(express.urlencoded({
   limit: '10mb'
 }));
 
+app.use(express.json({
+	limit: '10mb'
+}));
+
 function send_headers(res) {
 	res.header("Access-Control-Allow-Origin", '*');
 	res.header("Access-Control-Allow-Methods", 'GET, POST');
@@ -32,9 +37,28 @@ function send_headers(res) {
 }
 
 function read_url(url, res, options) {
-		reader = readers.reader_for_url(url);
+		const reader = readers.reader_for_url(url);
 		send_headers(res);
 		reader.read_url(url, res, options);
+}
+
+function parse_urls(input) {
+	if (!input) {
+		return [];
+	}
+
+	let values = [];
+	if (Array.isArray(input)) {
+		for (const entry of input) {
+			if (typeof entry === 'string') {
+				values = values.concat(entry.split(/\s+/));
+			}
+		}
+	} else if (typeof input === 'string') {
+		values = input.split(/\s+/);
+	}
+
+	return values.map((value) => value.trim()).filter((value) => value.length > 0);
 }
 
 function get_options(query) {
@@ -65,11 +89,15 @@ function get_options(query) {
 app.get('/', (req, res) => {
 	const url = req.query.url;
 	const options = get_options(req.query);
-	if (url && validURL(url)) {
-		read_url(url, res, options);
-	} else {
-		res.status(400).send("Please specify a valid url query parameter");
+	if (url !== undefined) {
+		if (validURL(url)) {
+			read_url(url, res, options);
+		} else {
+			res.status(400).send("Please specify a valid url query parameter");
+		}
+		return;
 	}
+	res.sendFile(path.join(__dirname, 'public_html', 'index.html'));
 });
 
 app.post('/', function(req, res) {
@@ -97,5 +125,44 @@ app.post('/', function(req, res) {
 
 });
 
+app.post('/batch', async (req, res) => {
+	const options = get_options(req.query);
+	const urls = parse_urls(req.body.urls);
+
+	if (!urls || urls.length === 0) {
+		res.status(400).send('Please provide at least one URL via the urls parameter.');
+		return;
+	}
+
+	for (const url of urls) {
+		if (!validURL(url)) {
+			res.status(400).send(`Please specify valid URLs. Invalid value: ${url}`);
+			return;
+		}
+	}
+
+	send_headers(res);
+
+	try {
+		const separator = '=========';
+		const pieces = [];
+
+		for (const url of urls) {
+			const markdown = await readers.read_markdown(url, { ...options });
+			const cleanedMarkdown = markdown.trim();
+			pieces.push(`${separator} ${url}\n\n${cleanedMarkdown}`);
+		}
+
+		res.send(pieces.join('\n\n') + '\n');
+	} catch (error) {
+		if (error && error.status) {
+			res.status(error.status).send(error.body || 'Sorry, could not fetch and convert that URL');
+		} else {
+			res.status(500).send('Sorry, could not fetch and convert that URL');
+		}
+	}
+});
+
 app.listen(port, () => {
+	console.log("app listening on port: ", port)
 })

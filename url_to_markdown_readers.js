@@ -11,6 +11,44 @@ const stackoverflow_prefix = "https://stackoverflow.com/questions";
 
 const timeoutMs = 15 * 1000;
 
+function read_markdown(url, options = {}) {
+	return new Promise((resolve, reject) => {
+		const reader = reader_for_url(url);
+		const response = createInMemoryResponse(resolve, reject);
+		try {
+			reader.read_url(url, response, { ...options });
+		} catch (error) {
+			reject({ status: 400, body: failure_message });
+		}
+	});
+}
+
+function createInMemoryResponse(resolve, reject) {
+	let statusCode = 200;
+	let settled = false;
+	return {
+		header() {
+			return this;
+		},
+		status(code) {
+			statusCode = code;
+			return this;
+		},
+		send(payload) {
+			if (settled) {
+				return this;
+			}
+			settled = true;
+			if (statusCode >= 400) {
+				reject({ status: statusCode, body: payload });
+			} else {
+				resolve(payload);
+			}
+			return this;
+		}
+	};
+}
+
 function fetch_url (url, success, failure) {
 
 	let fetch = new Promise((resolve, reject) => {
@@ -114,26 +152,33 @@ class stack_reader {
 	}
 }
 
+function reader_for_url(url) {
+	if (url.startsWith(apple_dev_prefix)) {
+		return new apple_reader;
+	} else if (url.startsWith(stackoverflow_prefix)) {
+		return new stack_reader;
+	} else {
+		return new html_reader;
+	}
+}
+
+function ignore_post(url) {
+	if (url) {
+		if (url.startsWith(stackoverflow_prefix)) {
+			return true;
+		}
+	} else {
+		return false;
+	}
+
+	return false;
+}
+
 module.exports = {
 	html_reader,
 	stack_reader,
 	apple_reader,
-	reader_for_url: function (url) {
-		if (url.startsWith(apple_dev_prefix)) {
-			return new apple_reader;
-		} else if (url.startsWith(stackoverflow_prefix)) {		
-			return new stack_reader;
-		} else {
-			return new html_reader;
-		}
-	},
-	ignore_post: function(url) {
-		if (url) {
-			if (url.startsWith(stackoverflow_prefix)) {
-				return true;
-			}
-		} else {
-			return false;
-		}
-	}
+	reader_for_url,
+	ignore_post,
+	read_markdown
 }

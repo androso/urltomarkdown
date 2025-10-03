@@ -9,17 +9,56 @@
 	<link rel="icon" type="image/png" href="apple-touch-icon-md.png" />
 	<script   src="https://code.jquery.com/jquery-3.6.0.min.js"   integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4="   crossorigin="anonymous"></script>
 	<script>
+		function splitUrls(raw) {
+			if (!raw) {
+				return [];
+			}
+			return raw
+				.split(/\s+/)
+				.map((value) => value.trim())
+				.filter((value) => value.length > 0);
+		}
+
+		function setResponseText(value) {
+			$("#text").val(value);
+		}
+
+		function requestFailed(xhr) {
+			const message = (xhr && xhr.responseText) ? xhr.responseText : 'Sorry, something went wrong while fetching markdown.';
+			setResponseText(message);
+		}
+
 		function getmarkdown() {
-			url = $("#url").val();
-			title = $("#title").is(":checked");
-			links = !$("#links").is(":checked");
-			clean = $("#clean").is(":checked");
-			$.get( 
-"https://urltomarkdown.herokuapp.com?url="+encodeURIComponent(url)+"&title="+title+"&links="+links+"&clean="+clean,
-				(data)=> {
-					$("#text").val(data);
-				}
-			);
+			const rawUrls = $("#url").val();
+			const urls = splitUrls(rawUrls);
+			const title = $("#title").is(":checked");
+			const links = !$("#links").is(":checked");
+			const clean = $("#clean").is(":checked");
+			const options = $.param({ title, links, clean });
+
+			if (urls.length === 0) {
+				setResponseText('Please provide at least one URL.');
+				return;
+			}
+
+			setResponseText('Fetching markdown...');
+
+			if (urls.length === 1) {
+				$.ajax({
+					type: 'GET',
+					url: `/?${$.param({ url: urls[0], title, links, clean })}`,
+					success: setResponseText,
+					error: requestFailed
+				});
+			} else {
+				$.ajax({
+					type: 'POST',
+					url: `/batch?${options}`,
+					data: { urls: rawUrls },
+					success: setResponseText,
+					error: requestFailed
+				});
+			}
 		}
 	</script>
 	<style>
@@ -34,8 +73,8 @@
 					<p class="lead">Please enter the URL of a web page</p>
 					<div class="col-md-6">
 						<div class="form-group">
-							<label for="url">Source Web Page</label>
-							<input id="url" type="url" name="url" class="form-control" placeholder="Please enter the URL" required="required" data-error="URL is required." />
+							<label for="url">Source Web Pages</label>
+							<textarea id="url" name="url" class="form-control" rows="6" placeholder="Paste one or more URLs (separate with spaces or new lines)" required="required" data-error="URL is required."></textarea>
 					</div>
 				</div>
 				<div class="col-md-2">
@@ -70,4 +109,3 @@
 	</div>
     </body>
 </html>
-
